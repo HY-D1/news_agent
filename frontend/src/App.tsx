@@ -36,8 +36,9 @@ export default function App() {
     try {
       const res = await generateDigest({ topics, range, regions });
       setData(res);
-    } catch (e: any) {
-      setErr(e?.message ?? "Unknown error");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setErr(message);
     } finally {
       setLoading(false);
     }

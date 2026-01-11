@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -52,7 +51,7 @@ class Citation(BaseModel):
     """
     publisher: str = Field(..., min_length=1, examples=["BBC News", "CBC News"])
     url: HttpUrl
-    published_at: Optional[datetime] = None
+    published_at: datetime | None = None
 
 
 class Bullet(BaseModel):
@@ -60,14 +59,17 @@ class Bullet(BaseModel):
     Each bullet MUST have citations.
     """
     text: str = Field(..., min_length=1, max_length=240)
-    citations: List[Citation] = Field(..., min_length=1)
+    citations: list[Citation] = Field(..., min_length=1)
 
 
 class DigestCard(BaseModel):
     """
     A single story card displayed in the UI.
     """
-    id: str = Field(..., min_length=6, description="Stable ID, e.g., hash of canonical URL or cluster id")
+    id: str = Field(
+        ..., 
+        min_length=6, 
+        description="Stable ID, e.g., hash of canonical URL or cluster id")
     topic: Topic
     headline: str = Field(..., min_length=1, max_length=160)
 
@@ -76,22 +78,22 @@ class DigestCard(BaseModel):
 
     confidence: ConfidenceTag = ConfidenceTag.SINGLE_SOURCE
 
-    bullets: List[Bullet] = Field(..., min_length=1, max_length=5)
+    bullets: list[Bullet] = Field(..., min_length=1, max_length=5)
 
     # Optional: flat list of sources for easy UI rendering
-    sources: Optional[List[Citation]] = None
+    sources: list[Citation] | None = None
 
 
 class DigestRequest(BaseModel):
     """
     Request from UI. Add new fields as optional defaults (backward compatible).
     """
-    topics: List[Topic] = Field(..., min_length=1)
+    topics: list[Topic] = Field(..., min_length=1)
     range: TimeRange = TimeRange.H24
-    regions: List[Region] = Field(..., min_length=1)
+    regions: list[Region] = Field(..., min_length=1)
 
     # Optional filters / knobs
-    publishers: Optional[List[str]] = None
+    publishers: list[str] | None = None
     max_cards: int = Field(12, ge=1, le=50)
     max_cards_per_topic: int = Field(5, ge=1, le=20)
 
@@ -107,7 +109,7 @@ class DigestResponse(BaseModel):
     qa_status: QAStatus
 
     request: DigestRequest
-    cards: List[DigestCard] = Field(default_factory=list)
+    cards: list[DigestCard] = Field(default_factory=list)
 
     # If FAIL/FALLBACK, explain why (for UI + debugging)
-    qa_notes: Optional[List[str]] = None
+    qa_notes: list[str] | None = None

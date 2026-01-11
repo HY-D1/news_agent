@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from pydantic import HttpUrl
 
 from app.core.schemas import (
     Bullet,
@@ -20,12 +22,19 @@ def build_digest(req: DigestRequest) -> DigestResponse:
     Later: this function becomes the orchestrator that calls:
     Gather -> Verify -> Summarize -> Format -> QA -> (retry/fallback)
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Mock citations (placeholders). Later these must come from allowlisted sources.
-    c1 = Citation(publisher="Mock Publisher", url="https://example.com/story-1", published_at=now)
-    c2 = Citation(publisher="Mock Publisher", url="https://example.com/story-2", published_at=now)
-
+    c1 = Citation(
+    publisher="Mock Publisher",
+    url=HttpUrl("https://example.com/story-1"),
+    published_at=now,
+    )   
+    c2 = Citation(
+        publisher="Mock Publisher",
+        url=HttpUrl("https://example.com/story-2"),
+        published_at=now,
+    )
     cards = [
         DigestCard(
             id="mock-1",

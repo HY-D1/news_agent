@@ -1,4 +1,75 @@
-# This file will later be generated/updated by a Source Discovery Agent.
-# It stores allowlisted publishers + official feed/API endpoints by region.
+regions:
+  - region: canada
+    publishers:
+      - name: CBC News
+        allowed_domains: ["cbc.ca"]
+        feeds:
+          - name: Top Stories
+            url: https://www.cbc.ca/cmlink/rss-topstories
+            topic: daily
+          - name: Technology
+            url: https://www.cbc.ca/cmlink/rss-technology
+            topic: tech
+      - name: Global News
+        allowed_domains: ["globalnews.ca"]
+        feeds:
+          - name: Latest
+            url: https://globalnews.ca/feed/
+            topic: daily
 
-regions: []
+  - region: usa
+    publishers:
+      - name: New York Times
+        allowed_domains: ["nytimes.com"]
+        feeds:
+          - name: Home Page
+            url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+            topic: daily
+          - name: Business
+            url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
+            topic: finance
+          - name: Technology
+            url: https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml
+            topic: tech
+      - name: NPR
+        allowed_domains: ["npr.org"]
+        feeds:
+          - name: News
+            url: https://feeds.npr.org/1001/rss.xml
+            topic: daily
+
+  - region: uk
+    publishers:
+      - name: BBC News
+        allowed_domains: ["bbc.co.uk", "bbc.com", "bbci.co.uk"]
+        feeds:
+          - name: Top Stories
+            url: http://feeds.bbci.co.uk/news/rss.xml
+            topic: daily
+          - name: Technology
+            url: http://feeds.bbci.co.uk/news/technology/rss.xml
+            topic: tech
+          - name: Business
+            url: http://feeds.bbci.co.uk/news/business/rss.xml
+            topic: finance
+      - name: The Guardian
+        allowed_domains: ["theguardian.com"]
+        feeds:
+          - name: UK News
+            url: https://www.theguardian.com/uk/rss
+            topic: daily
+
+  - region: china
+    publishers:
+      - name: SCMP
+        allowed_domains: ["scmp.com"]
+        feeds:
+          - name: Latest News
+            url: https://www.scmp.com/rss/92/feed
+            topic: daily
+      - name: China Daily
+        allowed_domains: ["chinadaily.com.cn"]
+        feeds:
+          - name: General
+            url: http://www.chinadaily.com.cn/rss/cndy_rss.xml
+            topic: daily

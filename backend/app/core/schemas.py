@@ -49,6 +49,7 @@ class Citation(BaseModel):
     """
     A single source reference. Keep it minimal and stable.
     """
+
     publisher: str = Field(..., min_length=1, examples=["BBC News", "CBC News"])
     url: HttpUrl
     published_at: datetime | None = None
@@ -58,6 +59,7 @@ class Bullet(BaseModel):
     """
     Each bullet MUST have citations.
     """
+
     text: str = Field(..., min_length=1, max_length=240)
     citations: list[Citation] = Field(..., min_length=1)
 
@@ -66,10 +68,10 @@ class DigestCard(BaseModel):
     """
     A single story card displayed in the UI.
     """
+
     id: str = Field(
-        ..., 
-        min_length=6, 
-        description="Stable ID, e.g., hash of canonical URL or cluster id")
+        ..., min_length=6, description="Stable ID, e.g., hash of canonical URL or cluster id"
+    )
     topic: Topic
     headline: str = Field(..., min_length=1, max_length=160)
 
@@ -88,6 +90,7 @@ class DigestRequest(BaseModel):
     """
     Request from UI. Add new fields as optional defaults (backward compatible).
     """
+
     topics: list[Topic] = Field(..., min_length=1)
     range: TimeRange = TimeRange.H24
     regions: list[Region] = Field(..., min_length=1)
@@ -102,6 +105,7 @@ class DigestResponse(BaseModel):
     """
     Response returned to UI. Stable contract.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     schema_version: str = "v1"

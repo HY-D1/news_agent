@@ -21,12 +21,13 @@ def is_domain_allowed(url: str, allowed_domains: list[str]) -> bool:
     domain = parsed_url.netloc.lower()
     if not domain:
         return False
-    
+
     for allowed in allowed_domains:
         allowed = allowed.lower()
         if domain == allowed or domain.endswith("." + allowed):
             return True
     return False
+
 
 def parse_rss_date(entry: feedparser.FeedParserDict) -> datetime | None:
     """
@@ -40,9 +41,9 @@ def parse_rss_date(entry: feedparser.FeedParserDict) -> datetime | None:
             return None
     return None
 
+
 def filter_by_time_range(
-    articles: list[ArticleCandidate], 
-    range_enum: TimeRange
+    articles: list[ArticleCandidate], range_enum: TimeRange
 ) -> list[ArticleCandidate]:
     """
     Filters articles based on TimeRange (24h, 3d, 7d).
@@ -56,9 +57,10 @@ def filter_by_time_range(
         delta = timedelta(days=7)
     else:
         return articles
-        
+
     cutoff = now - delta
     return [a for a in articles if a.published_at and a.published_at >= cutoff]
+
 
 def deduplicate_articles(articles: list[ArticleCandidate]) -> list[ArticleCandidate]:
     """
@@ -73,16 +75,17 @@ def deduplicate_articles(articles: list[ArticleCandidate]) -> list[ArticleCandid
             deduped.append(a)
     return deduped
 
+
 class RSSGatherer:
     def __init__(self, timeout_seconds: int = 10):
         self.timeout_seconds = timeout_seconds
 
     def gather(
-        self, 
-        publisher: Publisher, 
+        self,
+        publisher: Publisher,
         feed_registry: RegistryFeed,
         time_range: TimeRange,
-        raw_xml: str | None = None
+        raw_xml: str | None = None,
     ) -> list[ArticleCandidate]:
         """
         Fetches or takes raw XML, parses, normalizes, and filters.
@@ -100,13 +103,13 @@ class RSSGatherer:
             link = getattr(entry, "link", None)
             if not link:
                 continue
-                
+
             # Rule 3: Enforce allowlist by domain
             if not is_domain_allowed(link, publisher.allowed_domains):
                 continue
-                
+
             published_at = parse_rss_date(entry)
-            
+
             # Rule 2: Normalize into ArticleCandidate
             try:
                 candidate = ArticleCandidate(
@@ -115,7 +118,7 @@ class RSSGatherer:
                     publisher_name=publisher.name,
                     published_at=published_at,
                     topic=feed_registry.topic,
-                    summary=getattr(entry, "summary", None)
+                    summary=getattr(entry, "summary", None),
                 )
                 candidates.append(candidate)
             except Exception:
@@ -124,8 +127,8 @@ class RSSGatherer:
 
         # Rule 4: Time-range filtering
         candidates = filter_by_time_range(candidates, time_range)
-        
+
         # Rule 5: URL dedupe
         candidates = deduplicate_articles(candidates)
-        
+
         return candidates

@@ -4,6 +4,7 @@ from app.main import app
 
 client = TestClient(app)
 
+
 def test_digest_contract_smoke():
     res = client.post("/digest", json={"topics": ["tech"], "range": "24h", "regions": ["canada"]})
     assert res.status_code == 200
@@ -19,6 +20,7 @@ def test_digest_contract_smoke():
     for card in data["cards"]:
         for bullet in card["bullets"]:
             assert len(bullet["citations"]) >= 1
+
 
 def test_digest_rejects_empty_topics():
     res = client.post("/digest", json={"topics": [], "range": "24h", "regions": ["canada"]})

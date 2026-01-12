@@ -13,17 +13,21 @@ class Feed(BaseModel):
     url: HttpUrl
     topic: Topic
 
+
 class Publisher(BaseModel):
     name: str
     allowed_domains: list[str]
     feeds: list[Feed]
 
+
 class RegionSources(BaseModel):
     region: Region
     publishers: list[Publisher]
 
+
 class SourceRegistry(BaseModel):
     regions: list[RegionSources]
+
 
 def load_source_registry(path: Path) -> SourceRegistry:
     """
@@ -31,19 +35,18 @@ def load_source_registry(path: Path) -> SourceRegistry:
     """
     if not path.exists():
         return SourceRegistry(regions=[])
-        
+
     with open(path) as f:
         data = yaml.safe_load(f)
-        
+
     if not data:
         return SourceRegistry(regions=[])
-        
+
     return SourceRegistry.model_validate(data)
 
+
 def get_feeds_for_request(
-    registry: SourceRegistry, 
-    regions: list[Region], 
-    topics: list[Topic]
+    registry: SourceRegistry, regions: list[Region], topics: list[Topic]
 ) -> list[tuple[Publisher, Feed]]:
     """
     Returns a list of (Publisher, Feed) tuples that match requested regions and topics.
@@ -51,7 +54,7 @@ def get_feeds_for_request(
     matches = []
     requested_regions_set = set(regions)
     requested_topics_set = set(topics)
-    
+
     for rs in registry.regions:
         if rs.region in requested_regions_set:
             for pub in rs.publishers:

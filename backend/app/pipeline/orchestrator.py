@@ -55,10 +55,19 @@ def build_digest(req: DigestRequest) -> DigestResponse:
             req, notes=["No recent articles found in feeds. Showing mock demo data."]
         )
 
+    # Global deduplication across all gathered items
+    seen_urls = set()
+    unique_candidates = []
+    for can in all_candidates:
+        url_str = str(can.url)
+        if url_str not in seen_urls:
+            seen_urls.add(url_str)
+            unique_candidates.append(can)
+
     # 5. Convert candidates to DigestCards (Day 2 basic mapping)
     cards = []
     # Limit to max_cards
-    for _i, can in enumerate(all_candidates[: req.max_cards]):
+    for _i, can in enumerate(unique_candidates[: req.max_cards]):
         citation = Citation(
             publisher=can.publisher_name, url=can.url, published_at=can.published_at
         )

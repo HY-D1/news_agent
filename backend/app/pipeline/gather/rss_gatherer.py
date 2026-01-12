@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import feedparser
+import requests
 from pydantic import HttpUrl
 
 from app.core.schemas import TimeRange
@@ -36,19 +36,28 @@ def parse_rss_date(entry: feedparser.FeedParserDict) -> datetime | None:
     struct_time = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
     if struct_time:
         try:
-            return datetime.fromtimestamp(time.mktime(struct_time), UTC)
+            # struct_time is in UTC. calendar.timegm is better than time.mktime
+            # because mktime assumes local time.
+            import calendar
+
+            return datetime.fromtimestamp(calendar.timegm(struct_time), UTC)
         except (ValueError, OverflowError, TypeError):
             return None
     return None
 
 
 def filter_by_time_range(
-    articles: list[ArticleCandidate], range_enum: TimeRange
+    articles: list[ArticleCandidate],
+    range_enum: TimeRange,
+    now: datetime | None = None,
 ) -> list[ArticleCandidate]:
     """
     Filters articles based on TimeRange (24h, 3d, 7d).
+    Accepts an optional `now` parameter for deterministic testing.
     """
-    now = datetime.now(UTC)
+    if now is None:
+        now = datetime.now(UTC)
+
     if range_enum == TimeRange.H24:
         delta = timedelta(hours=24)
     elif range_enum == TimeRange.D3:
@@ -86,6 +95,7 @@ class RSSGatherer:
         feed_registry: RegistryFeed,
         time_range: TimeRange,
         raw_xml: str | None = None,
+        now: datetime | None = None,
     ) -> list[ArticleCandidate]:
         """
         Fetches or takes raw XML, parses, normalizes, and filters.
@@ -93,10 +103,23 @@ class RSSGatherer:
         if raw_xml:
             d = feedparser.parse(raw_xml)
         else:
-            # In a real app, you'd fetch with requests/httpx here
-            # But the user asked for a fetch -> parse -> normalize flow.
-            # I'll use feedparser's built-in fetch for simplicity unless told otherwise.
-            d = feedparser.parse(str(feed_registry.url))
+            # Use requests with User-Agent and timeout
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/91.0.4472.124 Safari/537.36"
+                )
+            }
+            try:
+                resp = requests.get(
+                    str(feed_registry.url), headers=headers, timeout=self.timeout_seconds
+                )
+                resp.raise_for_status()
+                d = feedparser.parse(resp.content)
+            except Exception:
+                # Fallback to empty feed if request fails
+                return []
 
         candidates = []
         for entry in d.entries:
@@ -126,7 +149,7 @@ class RSSGatherer:
                 continue
 
         # Rule 4: Time-range filtering
-        candidates = filter_by_time_range(candidates, time_range)
+        candidates = filter_by_time_range(candidates, time_range, now=now)
 
         # Rule 5: URL dedupe
         candidates = deduplicate_articles(candidates)

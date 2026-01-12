@@ -50,6 +50,7 @@ def get_feeds_for_request(
 ) -> list[tuple[Publisher, Feed]]:
     """
     Returns a list of (Publisher, Feed) tuples that match requested regions and topics.
+    If no feed matches the specific topic, it falls back to Topic.DAILY for that publisher.
     """
     matches = []
     requested_regions_set = set(regions)
@@ -58,7 +59,18 @@ def get_feeds_for_request(
     for rs in registry.regions:
         if rs.region in requested_regions_set:
             for pub in rs.publishers:
+                pub_matches = []
+                # First pass: try to find exact topic matches
                 for feed in pub.feeds:
                     if feed.topic in requested_topics_set:
-                        matches.append((pub, feed))
+                        pub_matches.append((pub, feed))
+
+                # Second pass: if no specific topic matches for this publisher,
+                # fallback to DAILY feeds.
+                if not pub_matches:
+                    for feed in pub.feeds:
+                        if feed.topic == Topic.DAILY:
+                            pub_matches.append((pub, feed))
+
+                matches.extend(pub_matches)
     return matches

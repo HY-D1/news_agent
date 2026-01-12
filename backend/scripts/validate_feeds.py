@@ -1,7 +1,15 @@
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 import feedparser
 import requests
+
+# Add backend to path to import app modules
+sys.path.append(str(Path(__file__).parent.parent))
+from app.core.source_registry import load_source_registry
+
+SOURCES_PATH = Path(__file__).parent.parent / "app" / "resources" / "sources.yaml"
 
 
 def is_domain_allowed(url, allowed_domains):
@@ -13,69 +21,58 @@ def is_domain_allowed(url, allowed_domains):
     return False
 
 
-FEEDS = [
-    ("Canada", "CBC News", "https://www.cbc.ca/cmlink/rss-topstories", ["cbc.ca"]),
-    ("Canada", "Global News", "https://globalnews.ca/feed/", ["globalnews.ca"]),
-    (
-        "UK",
-        "BBC News",
-        "http://feeds.bbci.co.uk/news/rss.xml",
-        ["bbc.co.uk", "bbci.co.uk", "bbc.com"],
-    ),
-    ("UK", "The Guardian", "https://www.theguardian.com/uk/rss", ["theguardian.com"]),
-    (
-        "USA",
-        "NYT",
-        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-        ["nytimes.com"],
-    ),
-    ("USA", "NPR", "https://feeds.npr.org/1001/rss.xml", ["npr.org"]),
-    (
-        "China",
-        "China Daily",
-        "http://www.chinadaily.com.cn/rss/cndy_rss.xml",
-        ["chinadaily.com.cn"],
-    ),
-    ("China", "SCMP Latest", "https://www.scmp.com/rss/92/feed", ["scmp.com"]),
-]
-
-
 def validate():
+    registry = load_source_registry(SOURCES_PATH)
+
     print("| Region | Publisher | Feed URL | Status | Reason |")
     print("|---|---|---|---|---|")
-    for region, pub, url, allowed in FEEDS:
-        try:
-            # Add User-Agent to avoid blocks
-            headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/91.0.4472.124 Safari/537.36"
-                )
-            }
-            resp = requests.get(url, headers=headers, timeout=15)
-            if resp.status_code != 200:
-                print(f"| {region} | {pub} | {url} | FAIL | HTTP {resp.status_code} |")
-                continue
 
-            d = feedparser.parse(resp.content)
-            if not d.entries:
-                print(f"| {region} | {pub} | {url} | FAIL | No entries found |")
-                continue
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/91.0.4472.124 Safari/537.36"
+        )
+    }
 
-            mismatch = []
-            for entry in d.entries[:3]:
-                link = getattr(entry, "link", None)
-                if not link or not is_domain_allowed(link, allowed):
-                    mismatch.append(link)
+    for rs in registry.regions:
+        for pub in rs.publishers:
+            for feed in pub.feeds:
+                region = rs.region.value
+                pub_name = pub.name
+                feed_url = str(feed.url)
+                allowed = pub.allowed_domains
 
-            if mismatch:
-                print(f"| {region} | {pub} | {url} | FAIL | Domain mismatch: {mismatch[0]} |")
-            else:
-                print(f"| {region} | {pub} | {url} | PASS | OK |")
+                try:
+                    resp = requests.get(feed_url, headers=headers, timeout=15)
+                    if resp.status_code != 200:
+                        print(
+                            f"| {region} | {pub_name} | {feed_url} | "
+                            f"FAIL | HTTP {resp.status_code} |"
+                        )
+                        continue
 
-        except Exception as e:
-            print(f"| {region} | {pub} | {url} | FAIL | {str(e)} |")
+                    d = feedparser.parse(resp.content)
+                    if not d.entries:
+                        print(f"| {region} | {pub_name} | {feed_url} | FAIL | No entries found |")
+                        continue
+
+                    mismatch = []
+                    for entry in d.entries[:3]:
+                        link = getattr(entry, "link", None)
+                        if not link or not is_domain_allowed(link, allowed):
+                            mismatch.append(link)
+
+                    if mismatch:
+                        print(
+                            f"| {region} | {pub_name} | {feed_url} | "
+                            f"FAIL | Domain mismatch: {mismatch[0]} |"
+                        )
+                    else:
+                        print(f"| {region} | {pub_name} | {feed_url} | PASS | OK |")
+
+                except Exception as e:
+                    print(f"| {region} | {pub_name} | {feed_url} | FAIL | {str(e)} |")
 
 
 if __name__ == "__main__":

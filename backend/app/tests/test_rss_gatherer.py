@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import HttpUrl
@@ -7,8 +8,11 @@ from app.core.source_registry import Feed as RegistryFeed
 from app.core.source_registry import Publisher
 from app.pipeline.gather.rss_gatherer import RSSGatherer
 
+# Deterministic "now" for testing: Jan 12, 2026 noon
+TEST_NOW = datetime(2026, 1, 12, 12, 0, 0, tzinfo=UTC)
 
-def test_rss_gatherer_filtering():
+
+def test_rss_gatherer_deterministic_filtering():
     fixture_path = Path(__file__).parent / "fixtures" / "sample_rss.xml"
     with open(fixture_path) as f:
         xml_content = f.read()
@@ -20,33 +24,39 @@ def test_rss_gatherer_filtering():
 
     gatherer = RSSGatherer()
 
-    # Test 24h filtering (Mock time is Jan 12, 2026)
-    # Story 1: Jan 12 (CBC) - PASS
-    # Story 2: Jan 11 (CBC) - FAIL (beyond 24h if current time is late Jan 12)
-    # Story 3: Jan 12 (Malicious) - FAIL (domain)
-    # Story 4: Jan 1 (CBC) - FAIL (time)
-    # Story 5: Duplicate of 1 - FAIL (dedupe)
+    # Fixture dates:
+    # Story 1: Jan 12 10:00 (2h old)
+    # Story 2: Jan 11 10:00 (26h old)
+    # Story 3: Jan 12 10:00 (Malicious domain)
+    # Story 4: Jan 1 10:00 (11 days old)
+    # Story 5: Jan 12 11:00 (Duplicate of Story 1)
 
-    # We need to control "now" for testing, but rss_gatherer uses datetime.now(UTC).
-    # For simplicity, let's just assert the domain and dedupe logic first.
-
+    # Test H24 (24h)
     results = gatherer.gather(
         publisher=publisher,
         feed_registry=feed_registry,
-        time_range=TimeRange.D7,  # Use 7d to include Story 1 & 2
+        time_range=TimeRange.H24,
         raw_xml=xml_content,
+        now=TEST_NOW,
     )
+    # Only Story 1 (CBC) and Story 5 (CBC, dup) are < 24h.
+    # Story 1 is kept, Story 5 is deduped. Story 2 is 26h > 24h.
+    assert len(results) == 1
+    assert str(results[0].url) == "https://cbc.ca/tech-breakthrough"
 
-    # Verified CBC domains: Story 1, 2, 4, 5
-    # Deduped: Story 1, 2, 4
-    # Time filtered (7d): Story 1, 2. Story 4 is Jan 1, which is > 7 days from Jan 12.
-
-    assert len(results) == 2
-    urls = [str(r.url) for r in results]
+    # Test D3 (3 days)
+    results_3d = gatherer.gather(
+        publisher=publisher,
+        feed_registry=feed_registry,
+        time_range=TimeRange.D3,
+        raw_xml=xml_content,
+        now=TEST_NOW,
+    )
+    # Story 1 and Story 2 are < 3 days. Story 4 is not.
+    assert len(results_3d) == 2
+    urls = [str(r.url) for r in results_3d]
     assert "https://cbc.ca/tech-breakthrough" in urls
     assert "https://cbc.ca/finance-update" in urls
-    assert "https://malicious.com/fake-news" not in urls
-    assert "https://cbc.ca/old-news" not in urls
 
 
 def test_domain_allowlist_subdomain():
@@ -55,3 +65,26 @@ def test_domain_allowlist_subdomain():
     assert is_domain_allowed("https://m.cbc.ca/story", ["cbc.ca"]) is True
     assert is_domain_allowed("https://cbc.ca.malicious.com/story", ["cbc.ca"]) is False
     assert is_domain_allowed("https://other.com/story", ["cbc.ca"]) is False
+
+
+def test_real_feeds_schema_validation():
+    # Verify we can load the real sources.yaml
+    from pathlib import Path
+
+    from app.core.source_registry import load_source_registry
+
+    sources_path = Path(__file__).parent.parent / "resources" / "sources.yaml"
+    registry = load_source_registry(sources_path)
+
+    # Check some known data from our populated sources.yaml
+    regions = [rs.region.value for rs in registry.regions]
+    assert "canada" in regions
+    assert "usa" in regions
+    assert "uk" in regions
+    assert "china" in regions
+
+    # Check CBC Tech feed exists
+    canada = next(rs for rs in registry.regions if rs.region.value == "canada")
+    cbc = next(pub for pub in canada.publishers if pub.name == "CBC News")
+    tech_feed = next(f for f in cbc.feeds if f.topic == Topic.TECH)
+    assert str(tech_feed.url) == "https://www.cbc.ca/cmlink/rss-technology"

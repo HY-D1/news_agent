@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+ <title>Mock News</title>
+ <description>Mock news feed for testing</description>
+ <link>https://mocknews.com</link>
+ <item>
+  <title>Story 1: Tech breakthrough</title>
+  <link>https://cbc.ca/tech-breakthrough</link>
+  <description>Sample description for story 1</description>
+  <pubDate>Mon, 12 Jan 2026 10:00:00 GMT</pubDate>
+ </item>
+ <item>
+  <title>Story 2: Financial update</title>
+  <link>https://cbc.ca/finance-update</link>
+  <description>Sample description for story 2</description>
+  <pubDate>Sun, 11 Jan 2026 10:00:00 GMT</pubDate>
+ </item>
+ <item>
+  <title>Story 3: Malicious link</title>
+  <link>https://malicious.com/fake-news</link>
+  <description>This should be filtered out</description>
+  <pubDate>Mon, 12 Jan 2026 10:00:00 GMT</pubDate>
+ </item>
+ <item>
+  <title>Story 4: Old news</title>
+  <link>https://cbc.ca/old-news</link>
+  <description>This should be filtered by time</description>
+  <pubDate>Mon, 01 Jan 2026 10:00:00 GMT</pubDate>
+ </item>
+ <item>
+  <title>Story 1 Duplicate</title>
+  <link>https://cbc.ca/tech-breakthrough</link>
+  <description>Duplicate URL</description>
+  <pubDate>Mon, 12 Jan 2026 11:00:00 GMT</pubDate>
+ </item>
+</channel>
+</rss>

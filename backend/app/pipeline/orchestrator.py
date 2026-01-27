@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,15 +18,76 @@ from app.core.schemas import (
     Topic,
 )
 from app.core.source_registry import get_feeds_for_request, load_source_registry
+from app.pipeline.gather.models import ArticleCandidate
 from app.pipeline.gather.rss_gatherer import RSSGatherer
 
 SOURCES_PATH = Path(__file__).parent.parent / "resources" / "sources.yaml"
 
 
+# Topic keywords for basic tagging when only DAILY feed is available
+TOPIC_KEYWORDS = {
+    Topic.TECH: [
+        "tech", "software", "ai", "a.i.", "apple", "google", "microsoft",
+        "semiconductor", "robot", "cloud", "digital"
+    ],
+    Topic.FINANCE: [
+        "finance", "market", "stock", "economy", "fed", "inflation",
+        "banking", "invest", "trading", "crypto"
+    ],
+    Topic.HEALTH: [
+        "health", "medical", "study", "doctor", "virus", "vaccine",
+        "wellness", "diet", "fitness", "cancer"
+    ],
+    Topic.LEARNING: [
+        "learn", "education", "course", "university", "tutorial",
+        "how-to", "student", "research", "science"
+    ],
+}
+
+
+def refine_topic(title: str, summary: str | None, current_topic: Topic) -> Topic:
+    """
+    Day 3: Tries to improve tagging if the source only gave us 'daily'.
+    """
+    if current_topic != Topic.DAILY:
+        # If the feed is already specific, we trust it.
+        return current_topic
+
+    text = f"{title} {summary or ''}".lower()
+    for topic, keywords in TOPIC_KEYWORDS.items():
+        for kw in keywords:
+            # Match keyword as a whole word
+            pattern = rf"\b{re.escape(kw)}\b"
+            if re.search(pattern, text):
+                return topic
+
+    return Topic.DAILY
+
+
+def get_title_signature(title: str) -> set[str]:
+    """
+    Returns a set of significant words from the title.
+    """
+    words = re.findall(r"\w+", title.lower())
+    # Filter out common short words
+    return {w for w in words if len(w) > 3}
+
+
+def are_related(sig1: set[str], sig2: set[str]) -> bool:
+    """
+    Simple overlap check to see if two titles are likely related stories.
+    """
+    if not sig1 or not sig2:
+        return False
+    intersection = sig1.intersection(sig2)
+    # Share 2+ words and >= 40% of keywords
+    return len(intersection) >= 2 and (len(intersection) / min(len(sig1), len(sig2)) >= 0.4)
+
+
 def build_digest(req: DigestRequest) -> DigestResponse:
     """
-    Day 2 Implementation:
-    Gather real news if available in sources.yaml, else fallback to mock.
+    Day 3 Implementation:
+    Gather real news, refine topics, cluster related stories, and rank.
     """
     now = datetime.now(UTC)
 
@@ -64,45 +126,119 @@ def build_digest(req: DigestRequest) -> DigestResponse:
             seen_urls.add(url_str)
             unique_candidates.append(can)
 
-    # 5. Convert candidates to DigestCards (Day 2 basic mapping)
-    cards = []
-    # Limit to max_cards
-    for _i, can in enumerate(unique_candidates[: req.max_cards]):
-        citation = Citation(
-            publisher=can.publisher_name, url=can.url, published_at=can.published_at
+    # 5. Refine Topics and Filter by requested topics
+    requested_topics = set(req.topics)
+    refined_candidates = []
+    for can in unique_candidates:
+        can.topic = refine_topic(can.title, can.summary, can.topic)
+        if can.topic in requested_topics or Topic.DAILY in requested_topics:
+            refined_candidates.append(can)
+
+    # 6. Clustering related stories
+    # We'll group candidates by topic first, then cluster within topic.
+    clusters: list[list[ArticleCandidate]] = []
+    
+    # Sort by date descending before clustering so oldest stories don't accidentally become leads
+    refined_candidates.sort(
+        key=lambda x: x.published_at or datetime.min.replace(tzinfo=UTC), reverse=True
+    )
+
+    for can in refined_candidates:
+        assigned = False
+        sig = get_title_signature(can.title)
+        
+        for cluster in clusters:
+            # Check if it matches the lead story of any cluster (within same topic)
+            lead = cluster[0]
+            if lead.topic == can.topic and are_related(get_title_signature(lead.title), sig):
+                cluster.append(can)
+                assigned = True
+                break
+        
+        if not assigned:
+            clusters.append([can])
+
+    # 7. Convert Clusters to DigestCards and Apply Constraints
+    cards: list[DigestCard] = []
+    topic_counts: dict[Topic, int] = {}
+
+    for cluster in clusters:
+        if len(cards) >= req.max_cards:
+            break
+            
+        lead = cluster[0]
+        t = lead.topic
+        count = topic_counts.get(t, 0)
+        if count >= req.max_cards_per_topic:
+            continue
+
+        # Combine citations
+        citations = []
+        seen_publishers = set()
+        for c in cluster:
+            cit = Citation(
+                publisher=c.publisher_name, url=c.url, published_at=c.published_at
+            )
+            citations.append(cit)
+            seen_publishers.add(c.publisher_name)
+
+        # Multi-source if more than one publisher
+        confidence = (
+            ConfidenceTag.MULTI_SOURCE if len(seen_publishers) > 1
+            else ConfidenceTag.SINGLE_SOURCE
         )
 
-        # Simple ID generation
-        cid = hashlib.md5(str(can.url).encode()).hexdigest()[:12]
+        # Simple ID generation from lead URL
+        cid = hashlib.md5(str(lead.url).encode()).hexdigest()[:12]
 
-        # In Day 2, we don't have an LLM summarizer yet,
-        # so we use the feed's summary or a placeholder.
         bullet_text = "Headline summary from source."
-        if can.summary:
-            # Clean up HTML if any (very basic)
-            clean_summary = can.summary.split("<")[0].strip()
+        if lead.summary:
+            clean_summary = lead.summary.split("<")[0].strip()
             if clean_summary:
                 bullet_text = clean_summary[:230]
 
         cards.append(
             DigestCard(
                 id=f"rss-{cid}",
-                topic=can.topic,
-                headline=can.title[:155],
-                publisher=can.publisher_name,
-                published_at=can.published_at or now,
-                confidence=ConfidenceTag.SINGLE_SOURCE,
-                bullets=[Bullet(text=bullet_text, citations=[citation])],
-                sources=[citation],
+                topic=t,
+                headline=lead.title[:155],
+                publisher=lead.publisher_name,
+                published_at=lead.published_at or now,
+                confidence=confidence,
+                bullets=[Bullet(text=bullet_text, citations=[citations[0]])],
+                sources=citations,
             )
         )
+        topic_counts[t] = count + 1
+
+    # Final Ranking: Multi-source first, then by date
+    cards.sort(
+        key=lambda x: (x.confidence == ConfidenceTag.MULTI_SOURCE, x.published_at),
+        reverse=True
+    )
+
+    # 8. QA Final Gate
+    # Ensure all cards have citations and meet basic quality
+    final_cards = []
+    for card in cards:
+        if not card.bullets or not card.sources:
+            continue
+        # Every bullet must have at least one citation
+        if any(not b.citations for b in card.bullets):
+            continue
+        final_cards.append(card)
+
+    qa_status = QAStatus.PASS if final_cards else QAStatus.FAIL
+    qa_notes = ["Successfully gathered, refined, and clustered news from RSS."]
+    if not final_cards:
+        qa_notes = ["QA Check failed: No stories met quality requirements (citations/bullets)."]
 
     return DigestResponse(
         generated_at=now,
-        qa_status=QAStatus.PASS,
+        qa_status=qa_status,
         request=req,
-        cards=cards,
-        qa_notes=["Successfully gathered real news from RSS."],
+        cards=final_cards,
+        qa_notes=qa_notes,
     )
 
 

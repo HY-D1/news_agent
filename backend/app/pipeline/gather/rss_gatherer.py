@@ -11,6 +11,7 @@ from app.core.schemas import TimeRange
 from app.core.source_registry import Feed as RegistryFeed
 from app.core.source_registry import Publisher
 from app.pipeline.gather.models import ArticleCandidate
+from app.pipeline.verify.url_canonicalize import canonicalize_url
 
 
 def is_domain_allowed(url: str, allowed_domains: list[str]) -> bool:
@@ -73,12 +74,12 @@ def filter_by_time_range(
 
 def deduplicate_articles(articles: list[ArticleCandidate]) -> list[ArticleCandidate]:
     """
-    Deduplicates articles by URL.
+    Deduplicates articles by canonical URL.
     """
     seen_urls = set()
     deduped = []
     for a in articles:
-        url_str = str(a.url)
+        url_str = canonicalize_url(str(a.url))
         if url_str not in seen_urls:
             seen_urls.add(url_str)
             deduped.append(a)

@@ -20,48 +20,13 @@ from app.core.schemas import (
 from app.core.source_registry import get_feeds_for_request, load_source_registry
 from app.pipeline.gather.models import ArticleCandidate
 from app.pipeline.gather.rss_gatherer import RSSGatherer
+from app.pipeline.verify.topic_tagger import tag_topics
+from app.pipeline.verify.verify_items import deduplicate_candidates, filter_by_topics
 
 SOURCES_PATH = Path(__file__).parent.parent / "resources" / "sources.yaml"
 
 
-# Topic keywords for basic tagging when only DAILY feed is available
-TOPIC_KEYWORDS = {
-    Topic.TECH: [
-        "tech", "software", "ai", "a.i.", "apple", "google", "microsoft",
-        "semiconductor", "robot", "cloud", "digital"
-    ],
-    Topic.FINANCE: [
-        "finance", "market", "stock", "economy", "fed", "inflation",
-        "banking", "invest", "trading", "crypto"
-    ],
-    Topic.HEALTH: [
-        "health", "medical", "study", "doctor", "virus", "vaccine",
-        "wellness", "diet", "fitness", "cancer"
-    ],
-    Topic.LEARNING: [
-        "learn", "education", "course", "university", "tutorial",
-        "how-to", "student", "research", "science"
-    ],
-}
-
-
-def refine_topic(title: str, summary: str | None, current_topic: Topic) -> Topic:
-    """
-    Day 3: Tries to improve tagging if the source only gave us 'daily'.
-    """
-    if current_topic != Topic.DAILY:
-        # If the feed is already specific, we trust it.
-        return current_topic
-
-    text = f"{title} {summary or ''}".lower()
-    for topic, keywords in TOPIC_KEYWORDS.items():
-        for kw in keywords:
-            # Match keyword as a whole word
-            pattern = rf"\b{re.escape(kw)}\b"
-            if re.search(pattern, text):
-                return topic
-
-    return Topic.DAILY
+# Tagging and filtering now handled in app/pipeline/verify/
 
 
 def get_title_signature(title: str) -> set[str]:
@@ -82,6 +47,21 @@ def are_related(sig1: set[str], sig2: set[str]) -> bool:
     intersection = sig1.intersection(sig2)
     # Share 2+ words and >= 40% of keywords
     return len(intersection) >= 2 and (len(intersection) / min(len(sig1), len(sig2)) >= 0.4)
+
+
+def refine_topic(title: str, summary: str | None, original_topic: Topic) -> Topic:
+    """
+    Helper to refine topic from DAILY to a more specific one if keywords match.
+    Preserves non-DAILY original topics.
+    """
+    if original_topic != Topic.DAILY:
+        return original_topic
+
+    tags = tag_topics(title, summary)
+    for t in [Topic.TECH, Topic.FINANCE, Topic.HEALTH, Topic.LEARNING]:
+        if t in tags:
+            return t
+    return Topic.DAILY
 
 
 def build_digest(req: DigestRequest) -> DigestResponse:
@@ -117,22 +97,11 @@ def build_digest(req: DigestRequest) -> DigestResponse:
             req, notes=["No recent articles found in feeds. Showing mock demo data."]
         )
 
-    # Global deduplication across all gathered items
-    seen_urls = set()
-    unique_candidates = []
-    for can in all_candidates:
-        url_str = str(can.url)
-        if url_str not in seen_urls:
-            seen_urls.add(url_str)
-            unique_candidates.append(can)
+    # Global deduplication across all gathered items using canonical URLs
+    unique_candidates = deduplicate_candidates(all_candidates)
 
     # 5. Refine Topics and Filter by requested topics
-    requested_topics = set(req.topics)
-    refined_candidates = []
-    for can in unique_candidates:
-        can.topic = refine_topic(can.title, can.summary, can.topic)
-        if can.topic in requested_topics or Topic.DAILY in requested_topics:
-            refined_candidates.append(can)
+    refined_candidates = filter_by_topics(unique_candidates, req.topics)
 
     # 6. Clustering related stories
     # We'll group candidates by topic first, then cluster within topic.

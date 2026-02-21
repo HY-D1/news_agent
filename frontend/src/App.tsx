@@ -1,38 +1,167 @@
-import { useMemo, useState } from "react";
+import { useState, useMemo } from "react";
 import "./App.css";
 import { generateDigest } from "./api";
-import type { DigestResponse, Topic, TimeRange, Region } from "./types";
+import type { DigestResponse, Topic, TimeRange, Region, DigestCard } from "./types";
 
-const TOPICS: { key: Topic; label: string }[] = [
-  { key: "tech", label: "Tech" },
-  { key: "finance", label: "Finance" },
-  { key: "health", label: "Health" },
-  { key: "daily", label: "Daily" },
-  { key: "learning", label: "Learning" },
+const TOPICS: { key: Topic; label: string; icon: string }[] = [
+  { key: "tech", label: "Technology", icon: "💻" },
+  { key: "finance", label: "Finance", icon: "💰" },
+  { key: "health", label: "Health", icon: "🏥" },
+  { key: "daily", label: "Daily News", icon: "📰" },
+  { key: "learning", label: "Learning", icon: "📚" },
 ];
 
+const TIME_RANGES: { key: TimeRange; label: string }[] = [
+  { key: "24h", label: "Last 24 hours" },
+  { key: "3d", label: "Last 3 days" },
+  { key: "7d", label: "Last 7 days" },
+];
+
+const REGIONS: { key: Region; label: string; flag: string }[] = [
+  { key: "canada", label: "Canada", flag: "🇨🇦" },
+  { key: "usa", label: "USA", flag: "🇺🇸" },
+  { key: "uk", label: "UK", flag: "🇬🇧" },
+  { key: "china", label: "China", flag: "🇨🇳" },
+  { key: "global", label: "Global", flag: "🌍" },
+];
+
+// Confidence badge component
+function ConfidenceBadge({ confidence }: { confidence: string }) {
+  const isMulti = confidence === "multi_source";
+  return (
+    <span className={`confidence-badge ${isMulti ? "multi" : "single"}`}>
+      {isMulti ? "✓ Multi-source" : "○ Single-source"}
+    </span>
+  );
+}
+
+// Topic badge component
+function TopicBadge({ topic }: { topic: Topic }) {
+  const topicInfo = TOPICS.find((t) => t.key === topic);
+  return (
+    <span className="topic-badge">
+      {topicInfo?.icon} {topicInfo?.label || topic}
+    </span>
+  );
+}
+
+// Card component
+function NewsCard({ card }: { card: DigestCard }) {
+  const publishedDate = new Date(card.published_at);
+  const timeAgo = getTimeAgo(publishedDate);
+
+  return (
+    <article className="news-card">
+      <div className="card-header">
+        <div className="card-meta">
+          <TopicBadge topic={card.topic} />
+          <ConfidenceBadge confidence={card.confidence} />
+        </div>
+        <h3 className="card-title">{card.headline}</h3>
+        <div className="card-source">
+          <span className="publisher">{card.publisher}</span>
+          <span className="separator">•</span>
+          <span className="time" title={publishedDate.toLocaleString()}>
+            {timeAgo}
+          </span>
+        </div>
+      </div>
+
+      <div className="card-content">
+        <ul className="bullet-list">
+          {card.bullets.map((bullet, idx) => (
+            <li key={idx} className="bullet-item">
+              <span className="bullet-text">{bullet.text}</span>
+              <span className="citations">
+                {bullet.citations.map((citation, i) => (
+                  <a
+                    key={i}
+                    href={citation.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="citation-link"
+                    title={`${citation.publisher} - ${new Date(
+                      citation.published_at || ""
+                    ).toLocaleDateString()}`}
+                  >
+                    [{i + 1}]
+                  </a>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {card.sources && card.sources.length > 0 && (
+        <div className="card-footer">
+          <span className="sources-label">Sources:</span>
+          <div className="sources-list">
+            {card.sources.map((source, i) => (
+              <a
+                key={i}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="source-link"
+              >
+                {source.publisher}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+// Helper function for time ago
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return "Yesterday";
+  return `${diffDays} days ago`;
+}
+
+// Main App Component
 export default function App() {
+  // State
   const [topics, setTopics] = useState<Topic[]>(["tech"]);
   const [range, setRange] = useState<TimeRange>("24h");
-  const [regions] = useState<Region[]>(["canada"]);
-
+  const [regions, setRegions] = useState<Region[]>(["canada"]);
   const [data, setData] = useState<DigestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Computed
   const canGenerate = topics.length > 0 && regions.length > 0;
-
   const topicSet = useMemo(() => new Set(topics), [topics]);
+  const regionSet = useMemo(() => new Set(regions), [regions]);
 
+  // Handlers
   function toggleTopic(t: Topic) {
     setTopics((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
     );
   }
 
+  function toggleRegion(r: Region) {
+    setRegions((prev) =>
+      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
+    );
+  }
+
   async function onGenerate() {
     setLoading(true);
     setErr(null);
+    setData(null);
     try {
       const res = await generateDigest({ topics, range, regions });
       setData(res);
@@ -45,128 +174,194 @@ export default function App() {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ marginBottom: 8 }}>News Digest</h1>
-      <p style={{ marginTop: 0, opacity: 0.75 }}>
-        Demo output is mocked today. Each bullet includes citations.
-      </p>
-
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Topics</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-            {TOPICS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => toggleTopic(t.key)}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #ddd",
-                  background: topicSet.has(t.key) ? "#111" : "#fff",
-                  color: topicSet.has(t.key) ? "#fff" : "#111",
-                  cursor: "pointer",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
+    <div className="app">
+      {/* Header */}
+      <header className="header">
+        <div className="header-content">
+          <div className="logo">
+            <span className="logo-icon">📰</span>
+            <h1>News Agent</h1>
           </div>
+          <p className="subtitle">
+            AI-powered news digest from trusted sources
+          </p>
         </div>
+      </header>
 
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Time range</div>
-          <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as TimeRange)}
-            style={{ marginTop: 6, padding: 8, borderRadius: 8 }}
-          >
-            <option value="24h">Last 24h</option>
-            <option value="3d">Last 3 days</option>
-            <option value="7d">Last 7 days</option>
-          </select>
-        </div>
+      {/* Main Content */}
+      <main className="main">
+        {/* Control Panel */}
+        <section className="control-panel">
+          {/* Topics */}
+          <div className="control-section">
+            <label className="control-label">
+              Topics <span className="required">*</span>
+            </label>
+            <div className="topic-grid">
+              {TOPICS.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => toggleTopic(t.key)}
+                  className={`topic-btn ${topicSet.has(t.key) ? "active" : ""}`}
+                  type="button"
+                >
+                  <span className="topic-icon">{t.icon}</span>
+                  <span className="topic-name">{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div style={{ marginLeft: "auto" }}>
+          {/* Time Range */}
+          <div className="control-section">
+            <label className="control-label">Time Range</label>
+            <div className="range-options">
+              {TIME_RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  className={`range-btn ${range === r.key ? "active" : ""}`}
+                  type="button"
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Regions */}
+          <div className="control-section">
+            <label className="control-label">
+              Regions <span className="required">*</span>
+            </label>
+            <div className="region-grid">
+              {REGIONS.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => toggleRegion(r.key)}
+                  className={`region-btn ${regionSet.has(r.key) ? "active" : ""}`}
+                  type="button"
+                >
+                  <span className="region-flag">{r.flag}</span>
+                  <span className="region-name">{r.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Generate Button */}
           <button
-            disabled={!canGenerate || loading}
             onClick={onGenerate}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid #ddd",
-              background: loading ? "#f3f3f3" : "#111",
-              color: loading ? "#111" : "#fff",
-              cursor: loading ? "not-allowed" : "pointer",
-              minWidth: 140,
-            }}
+            disabled={!canGenerate || loading}
+            className="generate-btn"
+            type="button"
           >
-            {loading ? "Generating..." : "Generate Digest"}
+            {loading ? (
+              <>
+                <span className="spinner"></span>
+                Generating...
+              </>
+            ) : (
+              <>
+                <span>✨</span> Generate Digest
+              </>
+            )}
           </button>
-        </div>
-      </div>
 
-      {err && (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f3c", borderRadius: 10 }}>
-          <b>Error:</b> {err}
-        </div>
-      )}
+          {!canGenerate && (
+            <p className="hint">
+              Select at least one topic and one region to continue
+            </p>
+          )}
+        </section>
 
-      {data && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        {/* Error Message */}
+        {err && (
+          <div className="error-message">
+            <span className="error-icon">⚠️</span>
             <div>
-              <b>QA status:</b> {data.qa_status}
-              {data.qa_notes?.length ? (
-                <span style={{ opacity: 0.7 }}> — {data.qa_notes[0]}</span>
-              ) : null}
-            </div>
-            <div style={{ opacity: 0.7 }}>
-              Generated: {new Date(data.generated_at).toLocaleString()}
+              <strong>Error</strong>
+              <p>{err}</p>
             </div>
           </div>
+        )}
 
-          <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
-            {data.cards.map((card) => (
-              <div key={card.id} style={{ border: "1px solid #e6e6e6", borderRadius: 14, padding: 14 }}>
-                <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-                  <h3 style={{ margin: 0 }}>{card.headline}</h3>
-                  <span style={{ fontSize: 12, opacity: 0.75 }}>
-                    {card.publisher} • {new Date(card.published_at).toLocaleString()}
+        {/* Results */}
+        {data && (
+          <section className="results">
+            {/* Results Header */}
+            <div className="results-header">
+              <div className="results-stats">
+                <h2>Your Digest</h2>
+                <div className="stats">
+                  <span className={`status-badge ${data.qa_status}`}>
+                    {data.qa_status === "pass"
+                      ? "✓ Verified"
+                      : data.qa_status === "fallback"
+                      ? "⚡ Fallback"
+                      : "✗ Failed"}
                   </span>
-                  <span style={{ fontSize: 12, padding: "2px 8px", border: "1px solid #ddd", borderRadius: 999 }}>
-                    {card.confidence === "multi_source" ? "Multi-source" : "Single-source"}
-                  </span>
-                  <span style={{ fontSize: 12, opacity: 0.7 }}>
-                    Topic: {card.topic}
+                  <span className="card-count">{data.cards.length} stories</span>
+                  <span className="generated-time">
+                    Generated {new Date(data.generated_at).toLocaleTimeString()}
                   </span>
                 </div>
-
-                <ul style={{ marginTop: 10 }}>
-                  {card.bullets.map((b, idx) => (
-                    <li key={idx} style={{ marginBottom: 8 }}>
-                      {b.text}{" "}
-                      <span style={{ fontSize: 12, opacity: 0.8 }}>
-                        {b.citations.map((c, i) => (
-                          <a
-                            key={i}
-                            href={c.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ marginLeft: 6 }}
-                          >
-                            [{i + 1}]
-                          </a>
-                        ))}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
               </div>
-            ))}
+              {data.qa_notes && data.qa_notes[0] && (
+                <p className="qa-note">{data.qa_notes[0]}</p>
+              )}
+            </div>
+
+            {/* Cards Grid */}
+            {data.cards.length > 0 ? (
+              <div className="cards-grid">
+                {data.cards.map((card) => (
+                  <NewsCard key={card.id} card={card} />
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <span className="empty-icon">📭</span>
+                <p>No stories found for your criteria.</p>
+                <p className="empty-hint">
+                  Try selecting different topics or a longer time range.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Initial State */}
+        {!data && !loading && !err && (
+          <div className="welcome-state">
+            <div className="welcome-icon">📰</div>
+            <h2>Welcome to News Agent</h2>
+            <p>
+              Select your topics and regions above, then click "Generate Digest"
+              to get a personalized news summary from trusted sources.
+            </p>
+            <div className="features">
+              <div className="feature">
+                <span>🔍</span>
+                <p>Multi-source verification</p>
+              </div>
+              <div className="feature">
+                <span>🔗</span>
+                <p>Citation-backed stories</p>
+              </div>
+              <div className="feature">
+                <span>⚡</span>
+                <p>AI-powered clustering</p>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="footer">
+        <p>News Agent Digest • Local Demo</p>
+      </footer>
     </div>
   );
 }

@@ -20,6 +20,11 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.get("/")
+def root():
+    return {"message": "News Agent API is running. Visit /docs for documentation."}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

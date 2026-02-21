@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 # -----------------------------
 # Enums (stable API vocabulary)
 # -----------------------------
-class Region(str, Enum):
+class Region(StrEnum):
     CANADA = "canada"
     USA = "usa"
     UK = "uk"
@@ -17,7 +17,7 @@ class Region(str, Enum):
     GLOBAL = "global"
 
 
-class Topic(str, Enum):
+class Topic(StrEnum):
     TECH = "tech"
     FINANCE = "finance"
     HEALTH = "health"
@@ -25,18 +25,18 @@ class Topic(str, Enum):
     LEARNING = "learning"
 
 
-class TimeRange(str, Enum):
+class TimeRange(StrEnum):
     H24 = "24h"
     D3 = "3d"
     D7 = "7d"
 
 
-class ConfidenceTag(str, Enum):
+class ConfidenceTag(StrEnum):
     MULTI_SOURCE = "multi_source"
     SINGLE_SOURCE = "single_source"
 
 
-class QAStatus(str, Enum):
+class QAStatus(StrEnum):
     PASS = "pass"
     FAIL = "fail"
     FALLBACK = "fallback"  # verified links only (safe mode)

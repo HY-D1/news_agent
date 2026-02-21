@@ -112,16 +112,18 @@ def test_build_digest_clustering(mock_gather, mock_get_feeds, mock_load_registry
     mock_get_feeds.return_value = [("Publisher A", MagicMock())]
     
     now = datetime.now(UTC)
+    # Use titles with high similarity (>0.60 threshold) to ensure clustering
+    # Both share "tech", "giant", "merger", "announced", "today" tokens
     mock_gather.return_value = [
         ArticleCandidate(
-            title="Massive Tech Merger Announced", url=HttpUrl("https://a.com/1"),
+            title="Tech Giant Merger Announced Today Breaking", url=HttpUrl("https://a.com/1"),
             publisher_name="Publisher A", published_at=now, topic=Topic.TECH,
-            summary="Story A"
+            summary="Story A about tech giant merger announced today"
         ),
         ArticleCandidate(
-            title="Tech Merger: Huge Deal Revealed", url=HttpUrl("https://b.com/1"),
+            title="Tech Giant Merger Announced Today Report", url=HttpUrl("https://b.com/1"),
             publisher_name="Publisher B", published_at=now, topic=Topic.TECH,
-            summary="Story B"
+            summary="Story B confirming tech giant merger"
         ),
         ArticleCandidate(
             title="Unrelated Daily News Story", url=HttpUrl("https://c.com/1"),

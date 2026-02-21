@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,35 +17,17 @@ from app.core.schemas import (
     Topic,
 )
 from app.core.source_registry import get_feeds_for_request, load_source_registry
+from app.pipeline.cluster.title_cluster import cluster_by_title_similarity
 from app.pipeline.gather.models import ArticleCandidate
 from app.pipeline.gather.rss_gatherer import RSSGatherer
+from app.pipeline.verify.dedupe import deduplicate_candidates
 from app.pipeline.verify.topic_tagger import tag_topics
-from app.pipeline.verify.verify_items import deduplicate_candidates, filter_by_topics
+from app.pipeline.verify.verify_items import filter_by_topics
 
 SOURCES_PATH = Path(__file__).parent.parent / "resources" / "sources.yaml"
 
 
-# Tagging and filtering now handled in app/pipeline/verify/
-
-
-def get_title_signature(title: str) -> set[str]:
-    """
-    Returns a set of significant words from the title.
-    """
-    words = re.findall(r"\w+", title.lower())
-    # Filter out common short words
-    return {w for w in words if len(w) > 3}
-
-
-def are_related(sig1: set[str], sig2: set[str]) -> bool:
-    """
-    Simple overlap check to see if two titles are likely related stories.
-    """
-    if not sig1 or not sig2:
-        return False
-    intersection = sig1.intersection(sig2)
-    # Share 2+ words and >= 40% of keywords
-    return len(intersection) >= 2 and (len(intersection) / min(len(sig1), len(sig2)) >= 0.4)
+# Topic tagging and filtering handled in app/pipeline/verify/
 
 
 def refine_topic(title: str, summary: str | None, original_topic: Topic) -> Topic:
@@ -104,78 +85,94 @@ def build_digest(req: DigestRequest) -> DigestResponse:
     refined_candidates = filter_by_topics(unique_candidates, req.topics)
 
     # 6. Clustering related stories
-    # We'll group candidates by topic first, then cluster within topic.
-    clusters: list[list[ArticleCandidate]] = []
-    
-    # Sort by date descending before clustering so oldest stories don't accidentally become leads
-    refined_candidates.sort(
-        key=lambda x: x.published_at or datetime.min.replace(tzinfo=UTC), reverse=True
-    )
-
-    for can in refined_candidates:
-        assigned = False
-        sig = get_title_signature(can.title)
-        
-        for cluster in clusters:
-            # Check if it matches the lead story of any cluster (within same topic)
-            lead = cluster[0]
-            if lead.topic == can.topic and are_related(get_title_signature(lead.title), sig):
-                cluster.append(can)
-                assigned = True
-                break
-        
-        if not assigned:
-            clusters.append([can])
+    # Use deterministic Jaccard-based clustering
+    clusters_members = cluster_by_title_similarity(refined_candidates)
 
     # 7. Convert Clusters to DigestCards and Apply Constraints
     cards: list[DigestCard] = []
     topic_counts: dict[Topic, int] = {}
 
-    for cluster in clusters:
+    for members in clusters_members:
         if len(cards) >= req.max_cards:
             break
             
-        lead = cluster[0]
-        t = lead.topic
+        # Select primary (latest date, then longest summary)
+        def get_sort_key(c: ArticleCandidate):
+            pub_date = c.published_at or datetime.min.replace(tzinfo=UTC)
+            summary_len = len(c.summary) if c.summary else 0
+            return (pub_date, summary_len)
+            
+        primary = max(members, key=get_sort_key)
+        
+        t = primary.topic
         count = topic_counts.get(t, 0)
         if count >= req.max_cards_per_topic:
             continue
 
-        # Combine citations
-        citations = []
+        # Combine unique citations across all members
+        unique_citations: list[Citation] = []
+        seen_urls = set()
         seen_publishers = set()
-        for c in cluster:
-            cit = Citation(
-                publisher=c.publisher_name, url=c.url, published_at=c.published_at
-            )
-            citations.append(cit)
-            seen_publishers.add(c.publisher_name)
+        
+        for m in members:
+            if str(m.url) not in seen_urls:
+                cit = Citation(
+                    publisher=m.publisher_name, 
+                    url=m.url, 
+                    published_at=m.published_at
+                )
+                unique_citations.append(cit)
+                seen_urls.add(str(m.url))
+                seen_publishers.add(m.publisher_name)
 
-        # Multi-source if more than one publisher
+        # Multi-source if more than one distinct publisher
         confidence = (
-            ConfidenceTag.MULTI_SOURCE if len(seen_publishers) > 1
+            ConfidenceTag.MULTI_SOURCE if len(seen_publishers) >= 2
             else ConfidenceTag.SINGLE_SOURCE
         )
 
-        # Simple ID generation from lead URL
-        cid = hashlib.md5(str(lead.url).encode()).hexdigest()[:12]
+        # Simple ID generation from primary URL
+        cid = hashlib.md5(str(primary.url).encode()).hexdigest()[:12]
 
-        bullet_text = "Headline summary from source."
-        if lead.summary:
-            clean_summary = lead.summary.split("<")[0].strip()
+        # Bullet generation: 1-3 bullets based on what's available
+        bullets: list[Bullet] = []
+        
+        # 1st bullet from primary summary
+        primary_text = "Headline summary from source."
+        if primary.summary:
+            clean_summary = primary.summary.split("<")[0].strip()
             if clean_summary:
-                bullet_text = clean_summary[:230]
+                primary_text = clean_summary[:230]
+        
+        bullets.append(Bullet(text=primary_text, citations=[unique_citations[0]]))
+
+        # Add up to 2 more bullets if there are other members with summaries
+        for m in members:
+            if len(bullets) >= 3:
+                break
+            if m == primary:
+                continue
+            
+            if m.summary:
+                m_text = m.summary.split("<")[0].strip()
+                if m_text and m_text[:200] not in [b.text[:200] for b in bullets]:
+                    # Find citation for this member
+                    m_cit = next(
+                        (c for c in unique_citations if str(c.url) == str(m.url)),
+                        unique_citations[0],
+                    )
+                    bullets.append(Bullet(text=m_text[:230], citations=[m_cit]))
 
         cards.append(
             DigestCard(
                 id=f"rss-{cid}",
                 topic=t,
-                headline=lead.title[:155],
-                publisher=lead.publisher_name,
-                published_at=lead.published_at or now,
+                headline=primary.title[:155],
+                publisher=primary.publisher_name,
+                published_at=primary.published_at or now,
                 confidence=confidence,
-                bullets=[Bullet(text=bullet_text, citations=[citations[0]])],
-                sources=citations,
+                bullets=bullets,
+                sources=unique_citations,
             )
         )
         topic_counts[t] = count + 1

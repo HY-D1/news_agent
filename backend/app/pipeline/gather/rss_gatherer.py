@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import feedparser
 import requests
-from pydantic import HttpUrl
+from pydantic import HttpUrl, ValidationError
 
 from app.core.schemas import TimeRange
 from app.core.source_registry import Feed as RegistryFeed
 from app.core.source_registry import Publisher
 from app.pipeline.gather.models import ArticleCandidate
 from app.pipeline.verify.url_canonicalize import canonicalize_url
+
+logger = logging.getLogger(__name__)
+
+
+def is_valid_url(url: str) -> bool:
+    """
+    Validates that a URL has required components (scheme and netloc).
+    """
+    try:
+        parsed = urlparse(url)
+        return bool(parsed.scheme and parsed.netloc)
+    except Exception:
+        return False
 
 
 def is_domain_allowed(url: str, allowed_domains: list[str]) -> bool:
@@ -118,23 +132,37 @@ class RSSGatherer:
                 )
                 resp.raise_for_status()
                 d = feedparser.parse(resp.content)
-            except Exception:
-                # Fallback to empty feed if request fails
+            except requests.RequestException as e:
+                logger.warning(f"Failed to fetch feed {feed_registry.url}: {e}")
                 return []
 
-        candidates = []
+        candidates: list[ArticleCandidate] = []
+        skipped_count = {
+            "no_link": 0, "invalid_url": 0,
+            "domain_not_allowed": 0, "validation_error": 0
+        }
+
         for entry in d.entries:
             link = getattr(entry, "link", None)
             if not link:
+                skipped_count["no_link"] += 1
                 continue
 
-            # Rule 3: Enforce allowlist by domain
+            # Rule 1: Validate URL format
+            if not is_valid_url(link):
+                skipped_count["invalid_url"] += 1
+                logger.debug(f"Skipping invalid URL: {link}")
+                continue
+
+            # Rule 2: Enforce allowlist by domain
             if not is_domain_allowed(link, publisher.allowed_domains):
+                skipped_count["domain_not_allowed"] += 1
+                logger.debug(f"Skipping URL from non-allowed domain: {link}")
                 continue
 
             published_at = parse_rss_date(entry)
 
-            # Rule 2: Normalize into ArticleCandidate
+            # Rule 3: Normalize into ArticleCandidate
             try:
                 candidate = ArticleCandidate(
                     title=getattr(entry, "title", "No Title"),
@@ -145,9 +173,21 @@ class RSSGatherer:
                     summary=getattr(entry, "summary", None),
                 )
                 candidates.append(candidate)
-            except Exception:
-                # Log or skip malformed URLs
+            except ValidationError as e:
+                skipped_count["validation_error"] += 1
+                title = getattr(entry, 'title', 'No Title')
+                logger.debug(f"Validation error for entry '{title}': {e}")
                 continue
+
+        total_skipped = sum(skipped_count.values())
+        if total_skipped > 0:
+            logger.info(
+                f"Feed {feed_registry.url}: gathered {len(candidates)} candidates, "
+                f"skipped {total_skipped} (no_link={skipped_count['no_link']}, "
+                f"invalid_url={skipped_count['invalid_url']}, "
+                f"domain_not_allowed={skipped_count['domain_not_allowed']}, "
+                f"validation_error={skipped_count['validation_error']})"
+            )
 
         # Rule 4: Time-range filtering
         candidates = filter_by_time_range(candidates, time_range, now=now)

@@ -4,7 +4,7 @@ from pydantic import HttpUrl
 
 from app.core.schemas import Topic
 from app.pipeline.gather.models import ArticleCandidate
-from app.pipeline.verify.dedupe import dedupe_by_canonical_url
+from app.pipeline.verify.dedupe import deduplicate_candidates
 
 
 def test_dedupe_same_canonical_url():
@@ -25,10 +25,11 @@ def test_dedupe_same_canonical_url():
         summary="Summary 2"
     )
     
-    results = dedupe_by_canonical_url([c1, c2])
+    results = deduplicate_candidates([c1, c2])
     assert len(results) == 1
     # Tie-breaker should keep c2 because it's newer
     assert results[0].url == HttpUrl("https://example.com/a?utm_medium=y")
+
 
 def test_dedupe_tie_breaker_published_at():
     # keep newest published_at
@@ -49,9 +50,10 @@ def test_dedupe_tie_breaker_published_at():
         summary="Fast news"
     )
     
-    results = dedupe_by_canonical_url([c1, c2])
+    results = deduplicate_candidates([c1, c2])
     assert len(results) == 1
     assert results[0].published_at == datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
 
 def test_dedupe_tie_breaker_missing_published_at():
     # if published_at missing, keep longer summary
@@ -72,9 +74,10 @@ def test_dedupe_tie_breaker_missing_published_at():
         summary="A much longer summary that provides more detail."
     )
     
-    results = dedupe_by_canonical_url([c1, c2])
+    results = deduplicate_candidates([c1, c2])
     assert len(results) == 1
     assert results[0].title == "Long"
+
 
 def test_dedupe_prefer_presence_of_published_at():
     c1 = ArticleCandidate(
@@ -94,6 +97,6 @@ def test_dedupe_prefer_presence_of_published_at():
         summary="Short"
     )
     
-    results = dedupe_by_canonical_url([c1, c2])
+    results = deduplicate_candidates([c1, c2])
     assert len(results) == 1
     assert results[0].published_at is not None

@@ -4,7 +4,7 @@ from pydantic import HttpUrl
 
 from app.core.schemas import Topic
 from app.pipeline.gather.models import ArticleCandidate
-from app.pipeline.verify.dedupe import dedupe_by_canonical_url
+from app.pipeline.verify.dedupe import deduplicate_candidates
 from app.pipeline.verify.url_canonicalize import canonicalize_url
 
 
@@ -29,6 +29,7 @@ def test_canonicalize_url():
     url = "https://example.com/path?b=2&a=1"
     assert canonicalize_url(url) == "https://example.com/path?a=1&b=2"
 
+
 def test_dedupe_by_canonical_url():
     now = datetime.now(UTC)
     earlier = now - timedelta(hours=1)
@@ -52,7 +53,7 @@ def test_dedupe_by_canonical_url():
     )
     
     # Should keep c2 because it's newer
-    deduped = dedupe_by_canonical_url([c1, c2])
+    deduped = deduplicate_candidates([c1, c2])
     assert len(deduped) == 1
     assert deduped[0].publisher_name == "Pub B"
     
@@ -73,7 +74,7 @@ def test_dedupe_by_canonical_url():
         topic=Topic.TECH,
         summary="S"
     )
-    deduped = dedupe_by_canonical_url([c3, c4])
+    deduped = deduplicate_candidates([c3, c4])
     assert len(deduped) == 1
     assert deduped[0].published_at == now
     
@@ -94,6 +95,6 @@ def test_dedupe_by_canonical_url():
         topic=Topic.TECH,
         summary="Much longer summary"
     )
-    deduped = dedupe_by_canonical_url([c5, c6])
+    deduped = deduplicate_candidates([c5, c6])
     assert len(deduped) == 1
     assert deduped[0].summary == "Much longer summary"

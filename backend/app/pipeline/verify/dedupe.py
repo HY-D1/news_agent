@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 from app.pipeline.gather.models import ArticleCandidate
-from app.pipeline.verify.url_canonicalize import canonicalize_url
+
+from .url_canonicalize import canonicalize_url
 
 
-def dedupe_by_canonical_url(items: list[ArticleCandidate]) -> list[ArticleCandidate]:
+def deduplicate_candidates(items: list[ArticleCandidate]) -> list[ArticleCandidate]:
     """
-    Deduplicates ArticleCandidate items based on their canonicalized URL.
+    Deduplicates candidates based on canonical URL.
 
-    Tie-breaker rules:
-    - Prefer items with published_at not None
-    - If both have published_at, keep newest
-    - Else prefer longer summary
+    Tie-breaker rules (in order):
+    1. Prefer items with published_at not None
+    2. If both have published_at, keep newest
+    3. Else prefer longer summary
     """
     canonical_map: dict[str, ArticleCandidate] = {}
 
     for item in items:
-        url_str = str(item.url)
-        canonical = canonicalize_url(url_str)
+        canonical = canonicalize_url(str(item.url))
 
         if canonical not in canonical_map:
             canonical_map[canonical] = item
@@ -44,3 +44,7 @@ def dedupe_by_canonical_url(items: list[ArticleCandidate]) -> list[ArticleCandid
             canonical_map[canonical] = item
 
     return list(canonical_map.values())
+
+
+# Backward compatibility alias
+dedupe_by_canonical_url = deduplicate_candidates

@@ -2,7 +2,6 @@ from app.core.schemas import Topic
 from app.pipeline.gather.models import ArticleCandidate
 
 from .topic_tagger import tag_topics
-from .url_canonicalize import canonicalize_url
 
 
 def filter_by_topics(
@@ -44,45 +43,3 @@ def filter_by_topics(
                 results.append(item)
 
     return results
-
-def deduplicate_candidates(items: list[ArticleCandidate]) -> list[ArticleCandidate]:
-    """
-    Deduplicates candidates based on canonical URL.
-    Tie-breakers:
-    1. Newest published_at
-    2. Longer summary
-    3. First seen
-    """
-    canonical_map: dict[str, ArticleCandidate] = {}
-
-    for item in items:
-        canonical = canonicalize_url(str(item.url))
-        
-        if canonical not in canonical_map:
-            canonical_map[canonical] = item
-            continue
-            
-        existing = canonical_map[canonical]
-        
-        # Tie-breaker 1: published_at
-        if item.published_at and (
-            not existing.published_at or item.published_at > existing.published_at
-        ):
-            canonical_map[canonical] = item
-            continue
-        elif (
-            existing.published_at
-            and item.published_at
-            and item.published_at < existing.published_at
-        ):
-            continue
-            
-        # Tie-breaker 2: longer summary
-        item_summary_len = len(item.summary) if item.summary else 0
-        existing_summary_len = len(existing.summary) if existing.summary else 0
-        
-        if item_summary_len > existing_summary_len:
-            canonical_map[canonical] = item
-
-    # Return in original relative order if possible, but map values are fine
-    return list(canonical_map.values())

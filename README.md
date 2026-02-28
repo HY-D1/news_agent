@@ -1,142 +1,197 @@
-# News Agent Digest 📰
+# News Agent Digest
 
-AI-powered news digest from trusted sources. Select topics and regions, get a personalized summary with verified citations.
+A web application that creates personalized news digests from trusted RSS sources for information-seeking users using FastAPI (Python 3.12) and React 19 with TypeScript.
 
-![News Agent Screenshot](docs/screenshot.png)
+## Demo
 
-## Quick Start 🚀
-
-### Option 1: One-Command Start (Recommended)
-
-```bash
-./start.sh
-```
-
-Then open http://localhost:5173
-
-### Option 2: Manual Start
-
-**Terminal 1 - Backend:**
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-uvicorn app.main:app --port 8000
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Then open http://localhost:5173
-
----
-
-## Usage
-
-1. **Select Topics** - Click the topics you're interested in (Tech, Finance, Health, etc.)
-2. **Select Regions** - Choose news sources by region (Canada, USA, UK, etc.)
-3. **Set Time Range** - Last 24 hours, 3 days, or 7 days
-4. **Generate** - Click the button and get your personalized digest
-
-### Understanding the Results
-
-- **Multi-source stories** marked with ✓ - verified across multiple publishers
-- **Single-source stories** marked with ○ - from one publisher
-- **Citations** - Click `[1]`, `[2]` links to view original sources
-- **QA Status** - Shows if digest passed quality checks
-
----
+![Demo](docs/demo.gif)
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| 🔍 Multi-Source Verification | Stories clustered and cross-referenced across publishers |
-| 🔗 Citation-Backed | Every bullet links to original sources |
-| ⚡ AI Clustering | Related stories grouped automatically |
-| 🌍 Regional Sources | Canada, USA, UK, China, Global news feeds |
-| 📱 Responsive UI | Works on desktop and mobile |
+### Implemented (v1.0)
+- Multi-source verification with automatic story clustering
+- Citation-backed reporting — every summary bullet links to original sources
+- Trust-first design with domain allowlist for publishers
+- QA gate validates all outputs before delivery
+- RSS feed aggregation from configured sources
+- Deduplication by canonical URL
+- Topic-based filtering (tech, finance, health, daily, learning)
+- Time-range filtering (24h, 3d, 7d)
 
----
+### Planned (v2.0)
+- LLM-powered summarization for richer story narratives
+- Semantic clustering using embeddings (replacing Jaccard similarity)
+- User preference learning and personalization
+- Real-time push notifications for breaking stories
+- Support for additional regions and custom RSS sources
 
 ## Architecture
 
+The system uses a modular pipeline architecture. The backend fetches RSS feeds, validates and deduplicates articles, clusters related stories, ranks them by confidence, and returns citation-backed cards. The React frontend provides the user interface for requesting and displaying digests.
+
+```mermaid
+graph LR
+    A[User Request] --> B[Gather RSS]
+    B --> C[Verify/Dedupe]
+    C --> D[Cluster Stories]
+    D --> E[Rank Results]
+    E --> F[QA Gate]
+    F --> G[Response]
+    H[React Frontend] --> A
+    G --> H
 ```
-User Request → Gather RSS → Verify/Dedupe → Cluster → Rank → QA Gate → Response
+
+## Setup
+
+### Prerequisites
+- Python 3.12+
+- Node.js 20+
+- npm or yarn
+
+### Quick Start
+
+```bash
+# Start both backend and frontend
+./start.sh
 ```
 
-- **Backend**: FastAPI + Python
-- **Frontend**: React + TypeScript + Vite
-- **Pipeline**: Modular stages (gather → verify → cluster → format)
+Access points:
+- Web App: http://localhost:5173
+- API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health
 
----
+### Run Tests
 
-## Development
-
-### Backend Commands
+Backend:
 ```bash
 cd backend
-pytest                      # Run tests
-ruff check app             # Lint
-mypy app                   # Type check
+pytest
 ```
 
-### Frontend Commands
+Frontend:
 ```bash
 cd frontend
-npm run lint               # ESLint
-npm run typecheck          # TypeScript check
-npm run build              # Production build
+npm run lint
+npm run typecheck
+npm run build
 ```
 
----
+### Configuration
 
-## Configuration
-
-Add custom RSS feeds by editing `backend/app/resources/sources.yaml`:
+RSS sources are configured in `backend/app/resources/sources.yaml`:
 
 ```yaml
 regions:
   - region: canada
     publishers:
-      - name: Your Publisher
+      - name: Publisher Name
         allowed_domains: ["example.com"]
         feeds:
-          - name: Tech News
+          - name: Feed Name
             url: https://example.com/rss.xml
             topic: tech
 ```
 
-Available topics: `tech`, `finance`, `health`, `daily`, `learning`  
-Available regions: `canada`, `usa`, `uk`, `china`, `global`
-
----
+Valid topics: `tech`, `finance`, `health`, `daily`, `learning`
+Valid regions: `canada`, `usa`, `uk`, `china`, `global`
 
 ## API Reference
 
-### Generate Digest
-```bash
-curl -X POST http://localhost:8000/digest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topics": ["tech", "finance"],
-    "range": "24h",
-    "regions": ["canada", "usa"]
-  }'
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/digest` | POST | Generate a personalized news digest |
+| `/health` | GET | Health check endpoint |
+
+### Example Request
+
+```json
+POST /digest
+{
+  "topics": ["tech", "finance"],
+  "range": "24h",
+  "regions": ["canada", "usa"],
+  "max_cards": 12,
+  "max_cards_per_topic": 5
+}
 ```
 
-### Health Check
-```bash
-curl http://localhost:8000/health
+### Example Response
+
+```json
+{
+  "schema_version": "v1",
+  "generated_at": "2024-01-15T10:30:00Z",
+  "qa_status": "pass",
+  "request": { "topics": ["tech"], "range": "24h", "regions": ["canada"] },
+  "cards": [{
+    "id": "abc123",
+    "topic": "tech",
+    "headline": "Story headline",
+    "publisher": "Publisher Name",
+    "published_at": "2024-01-15T08:00:00Z",
+    "confidence": "multi_source",
+    "bullets": [{
+      "text": "Summary bullet",
+      "citations": [{"publisher": "Source", "url": "...", "published_at": "..."}]
+    }],
+    "sources": []
+  }],
+  "qa_notes": []
+}
 ```
 
----
+## Data Model / Schema
 
-## License
+**DigestRequest**
+| Field | Type | Description |
+|-------|------|-------------|
+| topics | `Topic[]` | Topics to include |
+| range | `TimeRange` | Time window (24h, 3d, 7d) |
+| regions | `Region[]` | Regions to source from |
+| max_cards | `int` | Total card limit |
+| max_cards_per_topic | `int` | Per-topic limit |
 
-MIT
+**StoryCard**
+| Field | Type | Description |
+|-------|------|-------------|
+| id | `str` | Unique identifier |
+| topic | `Topic` | Assigned topic |
+| headline | `str` | Story headline |
+| publisher | `str` | Primary publisher |
+| published_at | `datetime` | Publication timestamp |
+| confidence | `ConfidenceLevel` | single_source or multi_source |
+| bullets | `BulletPoint[]` | Summary with citations |
+| sources | `Citation[]` | All source citations |
+
+## Trade-offs & Design Decisions
+
+- **Chose:** RSS feeds over news APIs
+- **Gave up:** Broader source coverage, real-time updates, rich metadata
+- **Why:** RSS is free, requires no API keys, and avoids rate limits; keeps the system simple and self-hostable without external dependencies
+
+- **Chose:** Jaccard similarity for story clustering
+- **Gave up:** Semantic similarity via embeddings
+- **Why:** Jaccard is fast, deterministic, and requires no ML dependencies; suitable for MVP with title-based clustering
+
+- **Chose:** Domain allowlist for source trust
+- **Gave up:** Automated credibility scoring
+- **Why:** Explicit allowlist is transparent, auditable, and prevents adversarial sources; aligns with trust-first design principle
+
+## Limitations
+
+- Only supports RSS feeds from pre-configured domain allowlist
+- No real-time updates — digests are generated on-demand
+- Story clustering relies on title similarity only (no content analysis)
+- No user authentication or persistent preferences
+- Limited to 5 regions and 5 topics in current configuration
+- Citation granularity is at the story level, not individual claims
+
+## Next Steps
+
+- Integrate LLM for enhanced summarization and bullet generation
+- Replace Jaccard clustering with embedding-based semantic similarity
+- Add user accounts with saved preferences and digest history
+- Implement WebSocket support for real-time digest updates
+- Expand source registry with automated feed discovery
+- Add content-based deduplication beyond URL canonicalization
